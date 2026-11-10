@@ -1,0 +1,4 @@
+config lan_reverse_proxy 'main'
+	option listen_port '18080'
+	option active_server ''
+	list interfaces 'lan'

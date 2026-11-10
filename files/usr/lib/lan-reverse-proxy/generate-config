@@ -1,0 +1,200 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+config_load lan_reverse_proxy
+config_get listen_port main listen_port 5665
+config_get active_server main active_server
+
+case "$listen_port" in
+	''|*[!0-9]*) exit 1 ;;
+esac
+[ "$listen_port" -ge 1 ] 2>/dev/null && [ "$listen_port" -le 65535 ] 2>/dev/null || exit 1
+has_active=0
+if [ -n "$active_server" ]; then
+	case "$active_server" in
+		*[!A-Za-z0-9_]*) exit 1 ;;
+	esac
+	active_found=0
+	find_active() {
+		[ "$1" = "$active_server" ] && active_found=1
+	}
+	config_foreach find_active upstream
+	if [ "$active_found" = 1 ]; then
+		config_get scheme "$active_server" scheme
+		config_get host "$active_server" host
+		config_get upstream_port "$active_server" port
+		config_get username "$active_server" username
+		config_get password "$active_server" password
+
+		case "$scheme" in
+			http|https) ;;
+			*) exit 1 ;;
+		esac
+		case "$host" in
+			''|*[!A-Za-z0-9.-]*|.*|*.) exit 1 ;;
+		esac
+		case "$host" in
+			*..*|-*|*-.*|*.-*|*-) exit 1 ;;
+		esac
+		case "$upstream_port" in
+			''|*[!0-9]*) exit 1 ;;
+		esac
+		[ "$upstream_port" -ge 1 ] 2>/dev/null && [ "$upstream_port" -le 65535 ] 2>/dev/null || exit 1
+		if [ -n "$username" ] || [ -n "$password" ]; then
+			[ -n "$username" ] && [ -n "$password" ] || exit 1
+			case "$username" in
+				*:*) exit 1 ;;
+			esac
+			command -v base64 >/dev/null 2>&1 || exit 1
+			authorization="$(printf '%s:%s' "$username" "$password" | base64 | tr -d '\r\n')" || exit 1
+			[ -n "$authorization" ] || exit 1
+		else
+			authorization=
+		fi
+		has_active=1
+	fi
+fi
+
+acl_file="/tmp/lan-reverse-proxy-acl.$$"
+: > "$acl_file"
+trap 'rm -f "$acl_file"' EXIT
+trap 'exit 1' HUP INT TERM
+
+write_interface_acl() {
+	interface="$1"
+	case "$interface" in
+		''|*[!A-Za-z0-9_.-]*) return 0 ;;
+	esac
+	device="$(ubus call "network.interface.$interface" status 2>/dev/null | jsonfilter -e '@.l3_device' 2>/dev/null)"
+	case "$device" in
+		''|*[!A-Za-z0-9_.:@-]*) return 0 ;;
+	esac
+	ip -o -4 addr show dev "$device" scope global 2>/dev/null |
+		while read -r index name family cidr rest; do
+			[ "$family" = inet ] && [ -n "$cidr" ] || continue
+			calculated="$(ipcalc.sh "$cidr" 2>/dev/null)" || continue
+			network=
+			prefix=
+			for value in $calculated; do
+				case "$value" in
+					NETWORK=*) network="${value#NETWORK=}" ;;
+					PREFIX=*) prefix="${value#PREFIX=}" ;;
+				esac
+			done
+			[ -n "$network" ] && [ -n "$prefix" ] && printf '        allow %s/%s;\n' "$network" "$prefix"
+		done >> "$acl_file"
+	ip -6 route show dev "$device" proto kernel 2>/dev/null |
+		while read -r cidr rest; do
+			case "$cidr" in
+				*/*) ;;
+				*) continue ;;
+			esac
+			case "$cidr" in
+				fe80:*|default) continue ;;
+			esac
+			printf '        allow %s;\n' "$cidr"
+		done >> "$acl_file"
+}
+config_list_foreach main interfaces write_interface_acl
+
+cat <<EOF
+user nobody nogroup;
+worker_processes 1;
+pid /var/run/lan-reverse-proxy.pid;
+error_log stderr warn;
+
+events {
+    worker_connections 64;
+}
+
+http {
+    access_log off;
+    client_max_body_size 16m;
+    client_body_temp_path /tmp/lan-reverse-proxy-client;
+    proxy_temp_path /tmp/lan-reverse-proxy-proxy;
+    fastcgi_temp_path /tmp/lan-reverse-proxy-fastcgi;
+    uwsgi_temp_path /tmp/lan-reverse-proxy-uwsgi;
+    scgi_temp_path /tmp/lan-reverse-proxy-scgi;
+    resolver 127.0.0.1 valid=300s;
+    resolver_timeout 5s;
+
+    map \$http_upgrade \$connection_upgrade {
+        default upgrade;
+        '' '';
+    }
+
+    server {
+        listen 0.0.0.0:$listen_port;
+        listen [::]:$listen_port;
+        server_name _;
+EOF
+
+if [ -s "$acl_file" ]; then
+	sort -u "$acl_file"
+fi
+
+cat <<EOF
+        deny all;
+EOF
+
+if [ "$has_active" = 1 ]; then
+	cat <<EOF
+        location / {
+            set \$lanrp_upstream "$scheme://$host:$upstream_port";
+            proxy_pass \$lanrp_upstream\$request_uri;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host:$upstream_port;
+EOF
+
+	if [ -n "$authorization" ]; then
+		printf '            proxy_set_header Authorization "Basic %s";\n' "$authorization"
+	else
+		printf '            proxy_set_header Authorization "";\n'
+	fi
+
+	cat <<EOF
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection \$connection_upgrade;
+            proxy_set_header Range \$http_range;
+            proxy_set_header If-Range \$http_if_range;
+            proxy_buffering off;
+            proxy_request_buffering off;
+            proxy_cache off;
+            proxy_max_temp_file_size 0;
+            proxy_connect_timeout 10s;
+            proxy_read_timeout 300s;
+            proxy_send_timeout 300s;
+            proxy_redirect $scheme://$host:$upstream_port/ /;
+EOF
+	case "$scheme:$upstream_port" in
+		http:80|https:443)
+			printf '            proxy_redirect %s://%s/ /;\n' "$scheme" "$host"
+			;;
+	esac
+
+	if [ "$scheme" = https ]; then
+		cat <<EOF
+            proxy_ssl_server_name on;
+            proxy_ssl_name $host;
+            proxy_ssl_verify on;
+            proxy_ssl_verify_depth 4;
+            proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+EOF
+	fi
+
+	cat <<EOF
+        }
+EOF
+else
+	cat <<EOF
+        location / {
+            return 503;
+        }
+EOF
+fi
+
+cat <<EOF
+    }
+}
+EOF

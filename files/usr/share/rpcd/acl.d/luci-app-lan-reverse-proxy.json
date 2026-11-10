@@ -1,0 +1,18 @@
+{
+	"luci-app-lan-reverse-proxy": {
+		"description": "Manage the LAN reverse proxy",
+		"read": {
+			"ubus": {
+				"network.interface": [ "dump" ],
+				"rc": [ "list" ]
+			},
+			"uci": [ "lan_reverse_proxy" ]
+		},
+		"write": {
+			"ubus": {
+				"rc": [ "init" ]
+			},
+			"uci": [ "lan_reverse_proxy" ]
+		}
+	}
+}

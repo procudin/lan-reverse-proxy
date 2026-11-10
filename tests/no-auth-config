@@ -1,0 +1,10 @@
+config lan_reverse_proxy 'main'
+	option listen_port '18080'
+	option active_server 'test'
+	list interfaces 'lan'
+
+config upstream 'test'
+	option label 'Test'
+	option scheme 'http'
+	option host '127.0.0.1'
+	option port '8090'

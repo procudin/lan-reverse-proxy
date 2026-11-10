@@ -1,0 +1,18 @@
+config lan_reverse_proxy 'main'
+	option listen_port '18080'
+	option active_server 'test'
+	list interfaces 'lan'
+
+config upstream 'test'
+	option label 'Test'
+	option scheme 'https'
+	option host 'example.com'
+	option port '443'
+	option username 'test'
+	option password 'test'
+
+config upstream 'unused'
+	option label 'Unused'
+	option scheme 'http'
+	option host 'unused.example.com'
+	option port '8080'
