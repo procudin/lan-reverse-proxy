@@ -6,5 +6,9 @@ A lightweight nginx reverse proxy for OpenWrt with LuCI configuration.
 - Optional upstream Basic Auth and TLS certificate verification.
 - Access restricted to selected network subnets.
 - Streaming, WebSocket and HTTP range support.
-- Graceful configuration reloads and service controls in LuCI.
-- APK releases for OpenWrt with apk package management.
+
+# Installation
+
+```sh
+wget -O /tmp/lanrp-install.sh https://github.com/procudin/lan-reverse-proxy/releases/latest/download/install.sh && sh /tmp/lanrp-install.sh
+```
