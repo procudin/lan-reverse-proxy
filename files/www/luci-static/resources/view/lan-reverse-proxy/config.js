@@ -49,6 +49,11 @@ return view.extend({
 		var service = initList['lan-reverse-proxy'] || {};
 		var m = new form.Map('lan_reverse_proxy', _('LAN Reverse Proxy'), _('Saving changes reloads a running proxy without terminating established streams.'));
 		var main = m.section(form.NamedSection, 'main', 'lan_reverse_proxy', _('Proxy settings'));
+		var enabled = main.option(form.Flag, 'enabled', _('Enable proxy'));
+		enabled.rmempty = false;
+		// Missing on legacy installations, where the proxy was always enabled.
+		enabled.default = '1';
+		enabled.description = _('Disabled on new installations. Save & Apply to start or stop the proxy.');
 
 		var listenPort = main.option(form.Value, 'listen_port', _('Local HTTP port'));
 		listenPort.datatype = 'port';
