@@ -10,5 +10,5 @@ A lightweight nginx reverse proxy for OpenWrt with LuCI configuration.
 # Installation
 
 ```sh
-wget -O /tmp/lanrp-install.sh https://github.com/procudin/lan-reverse-proxy/releases/latest/download/install.sh && sh /tmp/lanrp-install.sh
+wget -O /tmp/luci-app-lan-reverse-proxy.apk https://github.com/procudin/lan-reverse-proxy/releases/latest/download/luci-app-lan-reverse-proxy.apk && apk add --allow-untrusted /tmp/luci-app-lan-reverse-proxy.apk
 ```

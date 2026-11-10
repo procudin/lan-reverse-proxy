@@ -39,11 +39,12 @@ jobs:
           docker build -t lanrp-builder .
           docker run --rm --user root -v "$PWD:/work" lanrp-builder bash /work/scripts/build-apk.sh
           cd out
+          cp luci-app-lan-reverse-proxy-*.apk luci-app-lan-reverse-proxy.apk
           sha256sum *.apk > SHA256SUMS
       - name: Publish release
         if: steps.version.outputs.build == 'true'
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
-          gh release create "$TAG" out/*.apk out/SHA256SUMS scripts/install.sh \
+          gh release create "$TAG" out/*.apk out/SHA256SUMS \
             --target "$GITHUB_SHA" --title "$TAG" --generate-notes --latest
